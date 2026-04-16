@@ -20,9 +20,12 @@ public class TicTacToeAdvanced {
     private static final Color SUBTEXT   = new Color(148, 148, 180);
     private static final Color BTN_DARK  = new Color(50,  48,  82);
     private static final Color GRID_GAP  = new Color(8,   6,   18);
+    private static final Color CARD_BG   = new Color(24,  22,  46);
+    private static final Color CARD_BORDER = new Color(58, 48, 95);
 
     // ─── Fonts ────────────────────────────────────────────────────────────────
-    private static Font FONT_TITLE, FONT_BODY, FONT_SMALL, FONT_BTN, FONT_SECTION;
+    private static final String FONT_FAMILY;
+    private static final Font FONT_TITLE, FONT_BODY, FONT_SMALL, FONT_BTN, FONT_SECTION;
     static {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
         Set<String> avail = new HashSet<>(Arrays.asList(ge.getAvailableFontFamilyNames()));
@@ -30,11 +33,12 @@ public class TicTacToeAdvanced {
         for (String n : new String[]{"SF Pro Display","Inter","Segoe UI","Ubuntu","Helvetica Neue"}) {
             if (avail.contains(n)) { base = n; break; }
         }
+        FONT_FAMILY  = base;
         FONT_TITLE   = new Font(base, Font.BOLD,  30);
         FONT_BODY    = new Font(base, Font.PLAIN, 14);
         FONT_SMALL   = new Font(base, Font.PLAIN, 13);
         FONT_BTN     = new Font(base, Font.BOLD,  13);
-        FONT_SECTION = new Font(base, Font.BOLD,  14);
+        FONT_SECTION = new Font(base, Font.BOLD,  12);
     }
 
     // ─── Game State ───────────────────────────────────────────────────────────
@@ -43,7 +47,7 @@ public class TicTacToeAdvanced {
     private int           size, winLength;
     private char          currentPlayer;
     private boolean       vsComputer, gameOver;
-    private final Stack<int[]> undoStack = new Stack<>();  // {row, col, (int)player}
+    private final Stack<int[]> undoStack = new Stack<>();
     private final Stack<int[]> redoStack = new Stack<>();
     private int playerXWins, playerOWins, ties;
 
@@ -55,7 +59,7 @@ public class TicTacToeAdvanced {
     private JLabel       statusLabel, scoreLabel;
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  SOUND  — pure sine-wave synthesis, plays on a daemon thread
+    //  SOUND
     // ═══════════════════════════════════════════════════════════════════════════
     private static void playTones(int[] hz, int[] ms, double vol) {
         Thread t = new Thread(() -> {
@@ -66,8 +70,8 @@ public class TicTacToeAdvanced {
                     int fade = Math.min(n / 5, sr / 50);
                     byte[] buf = new byte[n * 2];
                     for (int j = 0; j < n; j++) {
-                        double env = j < fade       ? (double) j / fade
-                                   : j > n - fade  ? (double)(n - j) / fade : 1.0;
+                        double env = j < fade      ? (double) j / fade
+                                   : j > n - fade ? (double)(n - j) / fade : 1.0;
                         double angle = 2.0 * Math.PI * hz[i] * j / sr;
                         short  s    = (short)(vol * env * 32767 * Math.sin(angle));
                         buf[2*j]   = (byte)(s & 0xff);
@@ -120,13 +124,11 @@ public class TicTacToeAdvanced {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             int w = getWidth(), h = getHeight();
 
-            // Background
             boolean hovered = getModel().isRollover() && symbol == EMPTY && !gameOver;
             Color bg = winning ? CELL_WIN : hovered ? CELL_HVR : CELL_BG;
             g2.setColor(bg);
             g2.fillRoundRect(1, 1, w-2, h-2, 16, 16);
 
-            // Symbol
             if (symbol != EMPTY) {
                 int   pad = w / 5;
                 float sw  = Math.max(3.5f, w / 10f);
@@ -134,8 +136,8 @@ public class TicTacToeAdvanced {
                 Color col = winning ? WIN_FG : (symbol == 'X' ? X_COLOR : O_COLOR);
                 g2.setColor(col);
                 if (symbol == 'X') {
-                    g2.drawLine(pad,   pad,   w-pad, h-pad);
-                    g2.drawLine(w-pad, pad,   pad,   h-pad);
+                    g2.drawLine(pad, pad, w-pad, h-pad);
+                    g2.drawLine(w-pad, pad, pad, h-pad);
                 } else {
                     g2.drawOval(pad, pad, w-2*pad, h-2*pad);
                 }
@@ -170,7 +172,6 @@ public class TicTacToeAdvanced {
     //  MENU SCREEN
     // ═══════════════════════════════════════════════════════════════════════════
     private JPanel buildMenuPanel() {
-        // Gradient background
         JPanel panel = new JPanel(new BorderLayout(0, 0)) {
             @Override protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g;
@@ -178,111 +179,395 @@ public class TicTacToeAdvanced {
                 g2.fillRect(0, 0, getWidth(), getHeight());
             }
         };
-        panel.setBorder(BorderFactory.createEmptyBorder(32, 48, 32, 48));
-        panel.setPreferredSize(new Dimension(510, 650));
+        panel.setBorder(BorderFactory.createEmptyBorder(28, 40, 24, 40));
+        panel.setPreferredSize(new Dimension(500, 700));
 
-        // ── Title block ──
+        // ────────────────────────────────────────────────────────────────
+        //  TITLE BLOCK
+        // ────────────────────────────────────────────────────────────────
         JPanel titleBlock = new JPanel();
         titleBlock.setLayout(new BoxLayout(titleBlock, BoxLayout.Y_AXIS));
         titleBlock.setOpaque(false);
 
         JLabel superTitle = new JLabel("ULTIMATE", SwingConstants.CENTER);
-        superTitle.setFont(new Font(FONT_TITLE.getFamily(), Font.BOLD, 13));
-        superTitle.setForeground(new Color(140, 110, 240));
+        superTitle.setFont(new Font(FONT_FAMILY, Font.BOLD, 12));
+        superTitle.setForeground(new Color(130, 100, 230));
         superTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
-        superTitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 2, 0));
+        superTitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 3, 0));
 
         JLabel mainTitle = new JLabel("Tic Tac Toe", SwingConstants.CENTER);
         mainTitle.setFont(FONT_TITLE);
         mainTitle.setForeground(ACCENT);
         mainTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        // Thin divider
+        // Mini decorative board
+        JPanel miniBoard = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int cs = 18, gap = 3;
+                int bw = cs * 3 + gap * 2;
+                int bx = (getWidth() - bw) / 2, by = 0;
+                for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) {
+                    g2.setColor(new Color(34, 32, 62, 100));
+                    g2.fillRoundRect(bx + c*(cs+gap), by + r*(cs+gap), cs, cs, 5, 5);
+                }
+                g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                int p = 4;
+                // X at (0,0)
+                g2.setColor(new Color(255, 80, 80, 160));
+                drawMiniX(g2, bx, by, cs, p);
+                // O at (0,2)
+                g2.setColor(new Color(48, 190, 255, 160));
+                drawMiniO(g2, bx + 2*(cs+gap), by, cs, p);
+                // X at (1,1)
+                g2.setColor(new Color(255, 80, 80, 160));
+                drawMiniX(g2, bx + (cs+gap), by + (cs+gap), cs, p);
+                // O at (2,1)
+                g2.setColor(new Color(48, 190, 255, 160));
+                drawMiniO(g2, bx + (cs+gap), by + 2*(cs+gap), cs, p);
+                // X at (2,2)
+                g2.setColor(new Color(255, 80, 80, 160));
+                drawMiniX(g2, bx + 2*(cs+gap), by + 2*(cs+gap), cs, p);
+                g2.dispose();
+            }
+            private void drawMiniX(Graphics2D g2, int x, int y, int s, int p) {
+                g2.drawLine(x+p, y+p, x+s-p, y+s-p);
+                g2.drawLine(x+s-p, y+p, x+p, y+s-p);
+            }
+            private void drawMiniO(Graphics2D g2, int x, int y, int s, int p) {
+                g2.drawOval(x+p, y+p, s-2*p, s-2*p);
+            }
+        };
+        miniBoard.setOpaque(false);
+        miniBoard.setPreferredSize(new Dimension(80, 60));
+        miniBoard.setMaximumSize(new Dimension(80, 60));
+        miniBoard.setAlignmentX(Component.CENTER_ALIGNMENT);
+
         JSeparator sep = new JSeparator();
-        sep.setForeground(new Color(80, 60, 130));
-        sep.setMaximumSize(new Dimension(300, 1));
+        sep.setForeground(new Color(70, 55, 120));
+        sep.setMaximumSize(new Dimension(260, 1));
         sep.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         titleBlock.add(superTitle);
         titleBlock.add(mainTitle);
-        titleBlock.add(Box.createVerticalStrut(12));
+        titleBlock.add(Box.createVerticalStrut(10));
+        titleBlock.add(miniBoard);
+        titleBlock.add(Box.createVerticalStrut(14));
         titleBlock.add(sep);
-        titleBlock.add(Box.createVerticalStrut(20));
+        titleBlock.add(Box.createVerticalStrut(16));
         panel.add(titleBlock, BorderLayout.NORTH);
 
-        // ── Center: Rules + Setup ──
+        // ────────────────────────────────────────────────────────────────
+        //  CENTER — Rules Card + Setup Card
+        // ────────────────────────────────────────────────────────────────
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
         center.setOpaque(false);
 
-        center.add(sectionLabel("HOW TO PLAY"));
-        JTextArea rules = new JTextArea(
-            "  • Click a cell to place your symbol (X or O).\n" +
-            "  • First to align 'Win Length' symbols in a row,\n" +
-            "    column, or diagonal wins the round.\n" +
-            "  • A full board with no winner is a tie.\n\n" +
-            "  Undo      remove your last move\n" +
-            "  Redo      reapply an undone move\n" +
-            "  New Game  restart with the same settings\n" +
-            "  Menu      return here to change settings"
-        );
-        rules.setEditable(false);
-        rules.setFocusable(false);
-        rules.setFont(FONT_BODY);
-        rules.setForeground(new Color(200, 200, 225));
-        rules.setBackground(new Color(30, 28, 55));
-        rules.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(70, 58, 110), 1),
-            BorderFactory.createEmptyBorder(12, 14, 12, 14)
-        ));
-        rules.setAlignmentX(Component.LEFT_ALIGNMENT);
-        center.add(rules);
-        center.add(Box.createVerticalStrut(24));
+        // ── Rules Card ──
+        JPanel rulesContent = new JPanel();
+        rulesContent.setLayout(new BoxLayout(rulesContent, BoxLayout.Y_AXIS));
+        rulesContent.setOpaque(false);
 
-        center.add(sectionLabel("GAME SETUP"));
+        rulesContent.add(cardSectionLabel("HOW TO PLAY"));
+        rulesContent.add(Box.createVerticalStrut(6));
+        rulesContent.add(ruleLine("Click a cell to place your symbol (X or O)"));
+        rulesContent.add(ruleLine("Align 'Win Length' symbols in a row to win"));
+        rulesContent.add(ruleLine("Full board with no winner is a tie"));
+        rulesContent.add(Box.createVerticalStrut(10));
 
-        SpinnerNumberModel sizeModel = new SpinnerNumberModel(3, 3, 10, 1);
-        SpinnerNumberModel winModel  = new SpinnerNumberModel(3, 3, 3,  1);
-        JSpinner sizeSpinner = styledSpinner(sizeModel);
-        JSpinner winSpinner  = styledSpinner(winModel);
-        sizeSpinner.addChangeListener(e -> {
-            int s = (int) sizeSpinner.getValue();
-            winModel.setMaximum(s);
-            if ((int) winSpinner.getValue() > s) winSpinner.setValue(s);
+        rulesContent.add(cardSectionLabel("CONTROLS"));
+        rulesContent.add(Box.createVerticalStrut(4));
+        rulesContent.add(controlLine("Undo",     "remove last move"));
+        rulesContent.add(controlLine("Redo",     "reapply undone move"));
+        rulesContent.add(controlLine("New Game", "restart same settings"));
+        rulesContent.add(controlLine("Menu",     "change settings"));
+
+        center.add(wrapInCard(rulesContent));
+        center.add(Box.createVerticalStrut(14));
+
+        // ── Setup Card ──
+        JPanel setupContent = new JPanel();
+        setupContent.setLayout(new BoxLayout(setupContent, BoxLayout.Y_AXIS));
+        setupContent.setOpaque(false);
+
+        setupContent.add(cardSectionLabel("GAME SETUP"));
+        setupContent.add(Box.createVerticalStrut(10));
+
+        // Value holders for steppers
+        final int[] sizeVal = {3};
+        final int[] winVal  = {3};
+        final int[] winMax  = {3};  // mutable max for win length
+
+        JLabel sizeValLabel = new JLabel("3", SwingConstants.CENTER);
+        JLabel winValLabel  = new JLabel("3", SwingConstants.CENTER);
+        styleBigValueLabel(sizeValLabel);
+        styleBigValueLabel(winValLabel);
+
+        // Board size stepper
+        JButton sizeDown = circleBtn("\u2212");
+        JButton sizeUp   = circleBtn("+");
+        sizeDown.addActionListener(e -> {
+            if (sizeVal[0] > 3) {
+                sizeVal[0]--;
+                sizeValLabel.setText(String.valueOf(sizeVal[0]));
+                winMax[0] = sizeVal[0];
+                if (winVal[0] > winMax[0]) {
+                    winVal[0] = winMax[0];
+                    winValLabel.setText(String.valueOf(winVal[0]));
+                }
+            }
+        });
+        sizeUp.addActionListener(e -> {
+            if (sizeVal[0] < 10) {
+                sizeVal[0]++;
+                sizeValLabel.setText(String.valueOf(sizeVal[0]));
+                winMax[0] = sizeVal[0];
+            }
         });
 
-        String[] modes = {"Player vs Player", "Player vs Computer"};
-        JComboBox<String> modeBox = new JComboBox<>(modes);
-        styleComboBox(modeBox);
+        JPanel sizeRow = stepperRow("Board Size", sizeDown, sizeValLabel, sizeUp);
+        setupContent.add(sizeRow);
+        setupContent.add(Box.createVerticalStrut(8));
 
-        JPanel setupGrid = new JPanel(new GridLayout(3, 2, 12, 12));
-        setupGrid.setOpaque(false);
-        setupGrid.setAlignmentX(Component.LEFT_ALIGNMENT);
-        setupGrid.setMaximumSize(new Dimension(440, 140));
-        setupGrid.add(menuLabel("Board Size  (3 – 10)"));  setupGrid.add(sizeSpinner);
-        setupGrid.add(menuLabel("Win Length  (3 – size)")); setupGrid.add(winSpinner);
-        setupGrid.add(menuLabel("Game Mode"));             setupGrid.add(modeBox);
-        center.add(setupGrid);
+        // Win length stepper
+        JButton winDown = circleBtn("\u2212");
+        JButton winUp   = circleBtn("+");
+        winDown.addActionListener(e -> {
+            if (winVal[0] > 3) {
+                winVal[0]--;
+                winValLabel.setText(String.valueOf(winVal[0]));
+            }
+        });
+        winUp.addActionListener(e -> {
+            if (winVal[0] < winMax[0]) {
+                winVal[0]++;
+                winValLabel.setText(String.valueOf(winVal[0]));
+            }
+        });
+
+        JPanel winRow = stepperRow("Win Length", winDown, winValLabel, winUp);
+        setupContent.add(winRow);
+        setupContent.add(Box.createVerticalStrut(14));
+
+        // Mode toggle
+        final boolean[] isPvP = {true};
+        Color activeCol   = new Color(88, 58, 210);
+        Color inactiveCol = new Color(36, 34, 65);
+
+        JButton pvpBtn = toggleSegment("Player vs Player",    activeCol);
+        JButton pvcBtn = toggleSegment("Player vs Computer",  inactiveCol);
+
+        pvpBtn.addActionListener(e -> {
+            isPvP[0] = true;
+            pvpBtn.setBackground(activeCol);
+            pvcBtn.setBackground(inactiveCol);
+            pvpBtn.repaint();
+            pvcBtn.repaint();
+        });
+        pvcBtn.addActionListener(e -> {
+            isPvP[0] = false;
+            pvcBtn.setBackground(activeCol);
+            pvpBtn.setBackground(inactiveCol);
+            pvpBtn.repaint();
+            pvcBtn.repaint();
+        });
+
+        JPanel modeRow = new JPanel(new GridLayout(1, 2, 4, 0));
+        modeRow.setOpaque(false);
+        modeRow.setMaximumSize(new Dimension(420, 38));
+        modeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        modeRow.add(pvpBtn);
+        modeRow.add(pvcBtn);
+        setupContent.add(modeRow);
+
+        center.add(wrapInCard(setupContent));
         panel.add(center, BorderLayout.CENTER);
 
-        // ── Start button ──
+        // ────────────────────────────────────────────────────────────────
+        //  START BUTTON
+        // ────────────────────────────────────────────────────────────────
         JButton startBtn = roundButton("Start Game", new Color(88, 58, 210));
-        startBtn.setFont(new Font(FONT_BTN.getFamily(), Font.BOLD, 16));
-        startBtn.setPreferredSize(new Dimension(180, 46));
+        startBtn.setFont(new Font(FONT_FAMILY, Font.BOLD, 17));
+        startBtn.setBorder(BorderFactory.createEmptyBorder(12, 44, 12, 44));
         startBtn.addActionListener(e -> {
-            size       = (int) sizeSpinner.getValue();
-            winLength  = (int) winSpinner.getValue();
-            vsComputer = modeBox.getSelectedIndex() == 1;
+            size       = sizeVal[0];
+            winLength  = winVal[0];
+            vsComputer = !isPvP[0];
             startNewGame();
         });
 
         JPanel south = new JPanel(new FlowLayout(FlowLayout.CENTER));
         south.setOpaque(false);
-        south.setBorder(BorderFactory.createEmptyBorder(20, 0, 0, 0));
+        south.setBorder(BorderFactory.createEmptyBorder(18, 0, 0, 0));
         south.add(startBtn);
         panel.add(south, BorderLayout.SOUTH);
 
         return panel;
+    }
+
+    // ── Menu helper: wrap content in a rounded card ──
+    private JPanel wrapInCard(JPanel content) {
+        JPanel card = new JPanel(new BorderLayout()) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(CARD_BG);
+                g2.fillRoundRect(0, 0, getWidth()-1, getHeight()-1, 18, 18);
+                g2.setColor(CARD_BORDER);
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 18, 18);
+                g2.dispose();
+            }
+        };
+        card.setOpaque(false);
+        card.setBorder(BorderFactory.createEmptyBorder(14, 18, 14, 18));
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.add(content);
+        return card;
+    }
+
+    // ── Menu helper: section label inside a card ──
+    private JLabel cardSectionLabel(String text) {
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(FONT_SECTION);
+        lbl.setForeground(new Color(130, 105, 210));
+        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return lbl;
+    }
+
+    // ── Menu helper: rule bullet line ──
+    private JPanel ruleLine(String text) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 1));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(420, 22));
+
+        JPanel dot = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(ACCENT);
+                g2.fillOval(3, 5, 7, 7);
+                g2.dispose();
+            }
+        };
+        dot.setOpaque(false);
+        dot.setPreferredSize(new Dimension(16, 18));
+
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(FONT_BODY);
+        lbl.setForeground(new Color(200, 200, 228));
+        row.add(dot);
+        row.add(lbl);
+        return row;
+    }
+
+    // ── Menu helper: control key-value line ──
+    private JPanel controlLine(String key, String desc) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 1));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(420, 22));
+
+        JLabel kLbl = new JLabel(key);
+        kLbl.setFont(FONT_BTN);
+        kLbl.setForeground(ACCENT);
+        kLbl.setPreferredSize(new Dimension(80, 18));
+
+        JLabel vLbl = new JLabel(desc);
+        vLbl.setFont(FONT_SMALL);
+        vLbl.setForeground(SUBTEXT);
+
+        row.add(kLbl);
+        row.add(vLbl);
+        return row;
+    }
+
+    // ── Menu helper: stepper row  "Label   [ - ]  val  [ + ]" ──
+    private JPanel stepperRow(String label, JButton down, JLabel valLbl, JButton up) {
+        JPanel row = new JPanel(new BorderLayout(0, 0));
+        row.setOpaque(false);
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setMaximumSize(new Dimension(420, 36));
+
+        JLabel lbl = new JLabel(label);
+        lbl.setFont(FONT_BODY);
+        lbl.setForeground(TEXT);
+        row.add(lbl, BorderLayout.WEST);
+
+        JPanel stepper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        stepper.setOpaque(false);
+        stepper.add(down);
+        stepper.add(valLbl);
+        stepper.add(up);
+        row.add(stepper, BorderLayout.EAST);
+
+        return row;
+    }
+
+    // ── Menu helper: value label between stepper buttons ──
+    private void styleBigValueLabel(JLabel lbl) {
+        lbl.setFont(new Font(FONT_FAMILY, Font.BOLD, 20));
+        lbl.setForeground(ACCENT);
+        lbl.setPreferredSize(new Dimension(32, 32));
+        lbl.setHorizontalAlignment(SwingConstants.CENTER);
+    }
+
+    // ── Menu helper: small circular +/− button ──
+    private JButton circleBtn(String symbol) {
+        Color bg    = new Color(44, 42, 72);
+        Color hover = new Color(62, 58, 100);
+        JButton btn = new JButton(symbol) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillOval(0, 0, getWidth()-1, getHeight()-1);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btn.setFont(new Font(FONT_FAMILY, Font.BOLD, 16));
+        btn.setForeground(TEXT);
+        btn.setBackground(bg);
+        btn.setOpaque(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setFocusPainted(false);
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btn.setPreferredSize(new Dimension(32, 32));
+        btn.setHorizontalAlignment(SwingConstants.CENTER);
+        btn.addMouseListener(new MouseAdapter() {
+            public void mouseEntered(MouseEvent e) { btn.setBackground(hover); btn.repaint(); }
+            public void mouseExited (MouseEvent e) { btn.setBackground(bg);    btn.repaint(); }
+        });
+        return btn;
+    }
+
+    // ── Menu helper: mode toggle segment button ──
+    private JButton toggleSegment(String text, Color bg) {
+        JButton btn = new JButton(text) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getBackground());
+                g2.fillRoundRect(0, 0, getWidth()-1, getHeight()-1, 10, 10);
+                g2.dispose();
+                super.paintComponent(g);
+            }
+        };
+        btn.setFont(FONT_BTN);
+        btn.setForeground(TEXT);
+        btn.setBackground(bg);
+        btn.setOpaque(false);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setFocusPainted(false);
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btn.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        return btn;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -313,19 +598,19 @@ public class TicTacToeAdvanced {
         };
         panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 16, 20));
 
-        // ── Header: title + subtitle ──
+        // Header
         JPanel header = new JPanel();
         header.setLayout(new BoxLayout(header, BoxLayout.Y_AXIS));
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(0, 0, 14, 0));
 
         JLabel titleLbl = new JLabel("Tic Tac Toe", SwingConstants.CENTER);
-        titleLbl.setFont(new Font(FONT_TITLE.getFamily(), Font.BOLD, 22));
+        titleLbl.setFont(new Font(FONT_FAMILY, Font.BOLD, 22));
         titleLbl.setForeground(ACCENT);
         titleLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         String modeStr = vsComputer ? "vs Computer" : "2 Players";
-        JLabel subtitleLbl = new JLabel(size + " × " + size + "  ·  Win " + winLength + "  ·  " + modeStr,
+        JLabel subtitleLbl = new JLabel(size + " \u00d7 " + size + "  \u00b7  Win " + winLength + "  \u00b7  " + modeStr,
             SwingConstants.CENTER);
         subtitleLbl.setFont(FONT_SMALL);
         subtitleLbl.setForeground(SUBTEXT);
@@ -336,7 +621,7 @@ public class TicTacToeAdvanced {
         header.add(subtitleLbl);
         panel.add(header, BorderLayout.NORTH);
 
-        // ── Board ──
+        // Board
         int cellSize = Math.max(64, Math.min(94, 470 / size));
         JPanel boardPanel = new JPanel(new GridLayout(size, size, 5, 5));
         boardPanel.setBackground(GRID_GAP);
@@ -358,13 +643,13 @@ public class TicTacToeAdvanced {
         boardWrap.add(boardPanel);
         panel.add(boardWrap, BorderLayout.CENTER);
 
-        // ── South: status + controls + score ──
+        // South
         JPanel south = new JPanel(new BorderLayout(0, 4));
         south.setOpaque(false);
         south.setBorder(BorderFactory.createEmptyBorder(14, 0, 0, 0));
 
         statusLabel = new JLabel("", SwingConstants.CENTER);
-        statusLabel.setFont(new Font(FONT_TITLE.getFamily(), Font.BOLD, 17));
+        statusLabel.setFont(new Font(FONT_FAMILY, Font.BOLD, 17));
         statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
         refreshStatus();
         south.add(statusLabel, BorderLayout.NORTH);
@@ -479,7 +764,7 @@ public class TicTacToeAdvanced {
         refreshStatus();
     }
 
-    // ─── Minimax with alpha-beta pruning ─────────────────────────────────────
+    // ─── Minimax ─────────────────────────────────────────────────────────────
     private int[] minimax(int depth, boolean maximizing, int alpha, int beta) {
         if (hasWon('O'))              return new int[]{ -1, -1,  10 + depth };
         if (hasWon('X'))              return new int[]{ -1, -1, -10 - depth };
@@ -567,7 +852,7 @@ public class TicTacToeAdvanced {
     private void refreshStatus() {
         if (gameOver) return;
         if (vsComputer && currentPlayer == 'O') {
-            statusLabel.setText("Computer is thinking…");
+            statusLabel.setText("Computer is thinking\u2026");
             statusLabel.setForeground(O_COLOR);
         } else {
             statusLabel.setText("Player " + currentPlayer + "'s turn");
@@ -585,44 +870,8 @@ public class TicTacToeAdvanced {
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
-    //  STYLED UI HELPERS
+    //  SHARED STYLED HELPERS
     // ═══════════════════════════════════════════════════════════════════════════
-    private JLabel sectionLabel(String text) {
-        JLabel lbl = new JLabel(text);
-        lbl.setFont(FONT_SECTION);
-        lbl.setForeground(new Color(140, 110, 210));
-        lbl.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
-        lbl.setAlignmentX(Component.LEFT_ALIGNMENT);
-        return lbl;
-    }
-
-    private JLabel menuLabel(String text) {
-        JLabel lbl = new JLabel(text);
-        lbl.setFont(FONT_BODY);
-        lbl.setForeground(TEXT);
-        return lbl;
-    }
-
-    private JSpinner styledSpinner(SpinnerNumberModel model) {
-        JSpinner sp = new JSpinner(model);
-        sp.setFont(FONT_BODY);
-        JComponent ed = sp.getEditor();
-        if (ed instanceof JSpinner.DefaultEditor) {
-            JTextField tf = ((JSpinner.DefaultEditor) ed).getTextField();
-            tf.setBackground(new Color(30, 28, 55));
-            tf.setForeground(TEXT);
-            tf.setCaretColor(TEXT);
-        }
-        return sp;
-    }
-
-    private void styleComboBox(JComboBox<String> box) {
-        box.setFont(FONT_BODY);
-        box.setBackground(new Color(30, 28, 55));
-        box.setForeground(TEXT);
-    }
-
-    /** Rounded, custom-painted button. */
     private JButton roundButton(String text, Color bg) {
         Color hover = bg.brighter();
         JButton btn = new JButton(text) {
