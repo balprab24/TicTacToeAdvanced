@@ -23,7 +23,7 @@
 ---
 
 *Dark-themed. Hand-drawn symbols. Synthesized audio.*
-*No assets. No dependencies. One file. Pure Java.*
+*No assets. Pure Java app. JUnit-tested game logic.*
 
 </div>
 
@@ -48,11 +48,32 @@ Every move has a sound. X gets an ascending two-tone click. O gets a descending 
 ```bash
 git clone https://github.com/balprab24/TicTacToeAdvanced.git
 cd TicTacToeAdvanced
-javac TicTacToeAdvanced.java
+javac TicTacToeAdvanced.java TicTacToeGame.java
 java TicTacToeAdvanced
 ```
 
 That's it. Java 11+, nothing else.
+
+---
+
+## JUnit Tests
+
+The rules and AI live in `TicTacToeGame`, separate from the Swing UI, so they can be tested without opening a window. The test suite uses JUnit 5.
+
+```bash
+javac -cp lib/junit-platform-console-standalone-1.10.2.jar TicTacToeGame.java TicTacToeGameTest.java
+java -jar lib/junit-platform-console-standalone-1.10.2.jar execute --class-path . --scan-class-path
+```
+
+The JUnit tests cover board initialization, invalid moves, horizontal/vertical/diagonal wins, custom win lengths, ties, undo/redo, redo clearing, and minimax decisions where the computer wins or blocks immediately.
+
+In VS Code or Eclipse, add `lib/junit-platform-console-standalone-1.10.2.jar` to the Java build path, then run `TicTacToeGameTest` as a JUnit test class.
+
+This repo also includes VS Code tasks so you can run tests without retyping commands:
+
+1. Open the folder in VS Code.
+2. Run `Tasks: Run Task`.
+3. Choose `Run JUnit Tests`.
 
 ---
 
@@ -93,7 +114,9 @@ Winning cells highlight green. The status bar changes color to match whose turn 
 ## Under the Hood
 
 ```
-TicTacToeAdvanced.java
+TicTacToeAdvanced.java      → Swing UI, custom drawing, sounds, screens
+TicTacToeGame.java          → board state, rules, undo/redo, minimax AI
+TicTacToeGameTest.java      → JUnit 5 tests for game logic
 │
 ├─ main()             → launches Swing on the EDT
 ├─ buildMenuPanel()   → card-based setup screen
@@ -105,13 +128,11 @@ TicTacToeAdvanced.java
 ├─ buildGamePanel()   → game board + controls
 │   └─ CellButton         inner class, draws X/O via Graphics2D
 │
-├─ minimax()          → AI with alpha-beta pruning
 ├─ playTones()        → sine-wave audio synthesis
-├─ checkEnd()         → win detection + cell highlighting
-└─ undoMove/redoMove  → full move history stack
+└─ checkEnd()         → asks game engine for win/tie state
 ```
 
-**Zero dependencies.** The entire game — UI, AI, audio — lives in one `.java` file using only the JDK standard library.
+The game, AI, and audio use only the JDK standard library. Tests use JUnit 5 through the console runner in `lib/`.
 
 ---
 
@@ -120,7 +141,7 @@ TicTacToeAdvanced.java
 - **No images.** Every visual element is drawn with `Graphics2D`. Symbols scale cleanly to any cell size.
 - **No audio files.** Tones are generated from frequency + duration + volume parameters, synthesized into PCM byte arrays, and played through `SourceDataLine`.
 - **No L&F overrides.** Every component (`JButton`, `JPanel`, `JSpinner` replacement) is individually custom-painted to avoid the default Swing look entirely.
-- **One file.** No build system, no packages, no folders. Clone, compile, run.
+- **Testable core.** The rules and minimax AI are separated from Swing so they can be tested from the command line.
 
 ---
 

@@ -3,7 +3,6 @@ import javax.sound.sampled.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
-import java.util.List;
 
 public class TicTacToeAdvanced {
 
@@ -42,13 +41,10 @@ public class TicTacToeAdvanced {
     }
 
     // ─── Game State ───────────────────────────────────────────────────────────
-    private static final char EMPTY = ' ';
-    private char[][]      board;
+    private static final char EMPTY = TicTacToeGame.EMPTY;
+    private TicTacToeGame game;
     private int           size, winLength;
-    private char          currentPlayer;
     private boolean       vsComputer, gameOver;
-    private final Stack<int[]> undoStack = new Stack<>();
-    private final Stack<int[]> redoStack = new Stack<>();
     private int playerXWins, playerOWins, ties;
 
     // ─── GUI ──────────────────────────────────────────────────────────────────
@@ -574,12 +570,8 @@ public class TicTacToeAdvanced {
     //  GAME SCREEN
     // ═══════════════════════════════════════════════════════════════════════════
     private void startNewGame() {
-        board = new char[size][size];
-        for (char[] row : board) Arrays.fill(row, EMPTY);
-        currentPlayer = 'X';
+        game = new TicTacToeGame(size, winLength);
         gameOver      = false;
-        undoStack.clear();
-        redoStack.clear();
 
         JPanel gamePanel = buildGamePanel();
         rootPanel.add(gamePanel, "GAME");
@@ -662,8 +654,8 @@ public class TicTacToeAdvanced {
         JButton newGameBtn = roundButton("New Game", new Color(48, 82, 148));
         JButton menuBtn    = roundButton("Menu",     new Color(70, 48, 120));
 
-        undoBtn.addActionListener(e -> { if (!undoStack.isEmpty()) { undoMove(); refreshBoard(); } });
-        redoBtn.addActionListener(e -> { if (!redoStack.isEmpty()) { redoMove(); refreshBoard(); } });
+        undoBtn.addActionListener(e -> { if (game.canUndo()) { undoMove(); refreshBoard(); } });
+        redoBtn.addActionListener(e -> { if (game.canRedo()) { redoMove(); refreshBoard(); } });
         newGameBtn.addActionListener(e -> startNewGame());
         menuBtn.addActionListener(e -> cards.show(rootPanel, "MENU"));
 
@@ -686,17 +678,17 @@ public class TicTacToeAdvanced {
 
     // ─── Click handler ────────────────────────────────────────────────────────
     private void handleCellClick(int r, int c) {
-        if (gameOver || board[r][c] != EMPTY) return;
-        if (vsComputer && currentPlayer == 'O') return;
+        if (gameOver || game.getCell(r, c) != EMPTY) return;
+        if (vsComputer && game.getCurrentPlayer() == 'O') return;
 
-        placeAndRecord(r, c, currentPlayer);
+        placeAndRecord(r, c, game.getCurrentPlayer());
         refreshBoard();
         if (checkEnd(r, c)) return;
 
-        switchPlayer();
+        game.switchPlayer();
         refreshStatus();
 
-        if (vsComputer && currentPlayer == 'O') {
+        if (vsComputer && game.getCurrentPlayer() == 'O') {
             javax.swing.Timer t = new javax.swing.Timer(300, e -> doComputerMove());
             t.setRepeats(false);
             t.start();
@@ -704,37 +696,37 @@ public class TicTacToeAdvanced {
     }
 
     private void doComputerMove() {
-        int[] best = minimax(Math.min(5, size * size), true, Integer.MIN_VALUE, Integer.MAX_VALUE);
+        int[] best = game.findBestMove(Math.min(5, size * size));
         if (best[0] < 0) return;
         placeAndRecord(best[0], best[1], 'O');
         refreshBoard();
         if (!checkEnd(best[0], best[1])) {
-            switchPlayer();
+            game.switchPlayer();
             refreshStatus();
         }
     }
 
     private void placeAndRecord(int r, int c, char player) {
-        board[r][c] = player;
-        undoStack.push(new int[]{ r, c, player });
-        redoStack.clear();
+        game.placeMove(r, c, player);
         if (player == 'X') soundX(); else soundO();
     }
 
     private boolean checkEnd(int r, int c) {
-        if (hasWon(currentPlayer, r, c)) {
+        if (game.hasWon(game.getCurrentPlayer(), r, c)) {
             gameOver = true;
-            if (currentPlayer == 'X') playerXWins++; else playerOWins++;
+            game.setGameOver(true);
+            if (game.getCurrentPlayer() == 'X') playerXWins++; else playerOWins++;
             refreshScore();
             highlightWinningCells();
             soundWin();
-            String who = (vsComputer && currentPlayer == 'O') ? "Computer (O)" : "Player " + currentPlayer;
+            String who = (vsComputer && game.getCurrentPlayer() == 'O') ? "Computer (O)" : "Player " + game.getCurrentPlayer();
             statusLabel.setText(who + " wins!");
             statusLabel.setForeground(WIN_FG);
             return true;
         }
-        if (isBoardFull()) {
+        if (game.isBoardFull()) {
             gameOver = true;
+            game.setGameOver(true);
             ties++;
             refreshScore();
             soundTie();
@@ -747,103 +739,28 @@ public class TicTacToeAdvanced {
 
     // ─── Undo / Redo ─────────────────────────────────────────────────────────
     private void undoMove() {
-        int[] last = undoStack.pop();
-        board[last[0]][last[1]] = EMPTY;
-        redoStack.push(last);
-        currentPlayer = (char) last[2];
+        game.undoMove();
         gameOver = false;
         refreshStatus();
     }
 
     private void redoMove() {
-        int[] move = redoStack.pop();
-        board[move[0]][move[1]] = (char) move[2];
-        undoStack.push(move);
-        switchPlayer();
+        game.redoMove();
         gameOver = false;
         refreshStatus();
     }
 
-    // ─── Minimax ─────────────────────────────────────────────────────────────
-    private int[] minimax(int depth, boolean maximizing, int alpha, int beta) {
-        if (hasWon('O'))              return new int[]{ -1, -1,  10 + depth };
-        if (hasWon('X'))              return new int[]{ -1, -1, -10 - depth };
-        List<int[]> moves = getAvailableMoves();
-        if (moves.isEmpty() || depth == 0) return new int[]{ -1, -1, 0 };
-
-        char   player = maximizing ? 'O' : 'X';
-        int[]  best   = { -1, -1, maximizing ? Integer.MIN_VALUE : Integer.MAX_VALUE };
-
-        for (int[] m : moves) {
-            board[m[0]][m[1]] = player;
-            int[] res = minimax(depth - 1, !maximizing, alpha, beta);
-            board[m[0]][m[1]] = EMPTY;
-            if (maximizing ? res[2] > best[2] : res[2] < best[2])
-                best = new int[]{ m[0], m[1], res[2] };
-            if (maximizing) alpha = Math.max(alpha, best[2]);
-            else            beta  = Math.min(beta,  best[2]);
-            if (beta <= alpha) break;
-        }
-        return best;
-    }
-
-    // ─── Win detection ───────────────────────────────────────────────────────
-    private boolean hasWon(char p, int lr, int lc) {
-        if (lr < 0 || lc < 0) return hasWon(p);
-        return checkDir(p,lr,lc,1,0)||checkDir(p,lr,lc,0,1)||checkDir(p,lr,lc,1,1)||checkDir(p,lr,lc,1,-1);
-    }
-    private boolean hasWon(char p) {
-        for (int r = 0; r < size; r++)
-            for (int c = 0; c < size; c++)
-                if (board[r][c] == p && hasWon(p, r, c)) return true;
-        return false;
-    }
-    private boolean checkDir(char p, int r, int c, int dr, int dc) {
-        int cnt = 0;
-        for (int i = 0; inBounds(r+dr*i, c+dc*i) && board[r+dr*i][c+dc*i] == p; i++) cnt++;
-        for (int i = 1; inBounds(r-dr*i, c-dc*i) && board[r-dr*i][c-dc*i] == p; i++) cnt++;
-        return cnt >= winLength;
-    }
-
     private void highlightWinningCells() {
-        int[][] dirs = {{1,0},{0,1},{1,1},{1,-1}};
-        for (int r = 0; r < size; r++) for (int c = 0; c < size; c++) {
-            if (board[r][c] != currentPlayer) continue;
-            for (int[] d : dirs) {
-                List<int[]> cells = collectWinCells(currentPlayer, r, c, d[0], d[1]);
-                if (cells != null) for (int[] cell : cells) {
-                    cellButtons[cell[0]][cell[1]].winning = true;
-                    cellButtons[cell[0]][cell[1]].repaint();
-                }
-            }
+        for (int[] cell : game.getWinningCells(game.getCurrentPlayer())) {
+            cellButtons[cell[0]][cell[1]].winning = true;
+            cellButtons[cell[0]][cell[1]].repaint();
         }
-    }
-
-    private List<int[]> collectWinCells(char p, int r, int c, int dr, int dc) {
-        List<int[]> cells = new ArrayList<>();
-        for (int i = 0; inBounds(r+dr*i,c+dc*i) && board[r+dr*i][c+dc*i] == p; i++) cells.add(new int[]{r+dr*i,c+dc*i});
-        for (int i = 1; inBounds(r-dr*i,c-dc*i) && board[r-dr*i][c-dc*i] == p; i++) cells.add(new int[]{r-dr*i,c-dc*i});
-        return cells.size() >= winLength ? cells : null;
-    }
-
-    // ─── Board helpers ───────────────────────────────────────────────────────
-    private boolean inBounds(int r, int c) { return r >= 0 && r < size && c >= 0 && c < size; }
-    private boolean isBoardFull() {
-        for (char[] row : board) for (char ch : row) if (ch == EMPTY) return false;
-        return true;
-    }
-    private void switchPlayer() { currentPlayer = currentPlayer == 'X' ? 'O' : 'X'; }
-    private List<int[]> getAvailableMoves() {
-        List<int[]> moves = new ArrayList<>();
-        for (int r = 0; r < size; r++) for (int c = 0; c < size; c++)
-            if (board[r][c] == EMPTY) moves.add(new int[]{r, c});
-        return moves;
     }
 
     // ─── UI refresh ──────────────────────────────────────────────────────────
     private void refreshBoard() {
         for (int r = 0; r < size; r++) for (int c = 0; c < size; c++) {
-            cellButtons[r][c].symbol  = board[r][c];
+            cellButtons[r][c].symbol  = game.getCell(r, c);
             cellButtons[r][c].winning = false;
             cellButtons[r][c].repaint();
         }
@@ -851,12 +768,12 @@ public class TicTacToeAdvanced {
 
     private void refreshStatus() {
         if (gameOver) return;
-        if (vsComputer && currentPlayer == 'O') {
+        if (vsComputer && game.getCurrentPlayer() == 'O') {
             statusLabel.setText("Computer is thinking\u2026");
             statusLabel.setForeground(O_COLOR);
         } else {
-            statusLabel.setText("Player " + currentPlayer + "'s turn");
-            statusLabel.setForeground(currentPlayer == 'X' ? X_COLOR : O_COLOR);
+            statusLabel.setText("Player " + game.getCurrentPlayer() + "'s turn");
+            statusLabel.setForeground(game.getCurrentPlayer() == 'X' ? X_COLOR : O_COLOR);
         }
     }
 
