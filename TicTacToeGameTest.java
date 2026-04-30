@@ -81,9 +81,9 @@ class TicTacToeGameTest {
     void detectsFullBoardTieState() {
         TicTacToeGame game = new TicTacToeGame(3, 3);
         char[][] tieBoard = {
-            {'X', 'O', 'X'},
-            {'X', 'O', 'O'},
-            {'O', 'X', 'X'}
+                { 'X', 'O', 'X' },
+                { 'X', 'O', 'O' },
+                { 'O', 'X', 'X' }
         };
 
         fillBoard(game, tieBoard);
@@ -133,7 +133,7 @@ class TicTacToeGameTest {
 
         int[] bestMove = game.findBestMove(3);
 
-        assertArrayEquals(new int[]{0, 2}, new int[]{bestMove[0], bestMove[1]});
+        assertArrayEquals(new int[] { 0, 2 }, new int[] { bestMove[0], bestMove[1] });
     }
 
     @Test
@@ -146,7 +146,179 @@ class TicTacToeGameTest {
 
         int[] bestMove = game.findBestMove(2);
 
-        assertArrayEquals(new int[]{0, 2}, new int[]{bestMove[0], bestMove[1]});
+        assertArrayEquals(new int[] { 0, 2 }, new int[] { bestMove[0], bestMove[1] });
+    }
+
+    @Test
+    void computerChoosesCenterOnEmptyLargerBoard() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        int[] bestMove = game.findBestMove(1);
+
+        assertArrayEquals(new int[] { 2, 2 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void computerExtendsStrongLineOnLargerBoard() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        game.placeMove(2, 0, 'X');
+        game.placeMove(2, 1, 'O');
+        game.placeMove(2, 2, 'O');
+        game.placeMove(4, 4, 'X');
+
+        int[] bestMove = game.findBestMove(1);
+
+        assertArrayEquals(new int[] { 2, 3 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void computerTakesImmediateWinOnLargerBoard() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        game.placeMove(1, 0, 'X');
+        game.placeMove(1, 1, 'O');
+        game.placeMove(1, 2, 'O');
+        game.placeMove(1, 3, 'O');
+
+        int[] bestMove = game.findBestMove(1);
+
+        assertArrayEquals(new int[] { 1, 4 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void computerBlocksImmediateLossOnLargerBoard() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        game.placeMove(3, 0, 'O');
+        game.placeMove(3, 1, 'X');
+        game.placeMove(3, 2, 'X');
+        game.placeMove(3, 3, 'X');
+
+        int[] bestMove = game.findBestMove(1);
+
+        assertArrayEquals(new int[] { 3, 4 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void easyDifficultyReturnsLegalAvailableMove() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        game.placeMove(0, 0, 'X');
+        game.placeMove(1, 1, 'O');
+
+        int[] bestMove = game.findBestMove(TicTacToeGame.Difficulty.EASY);
+
+        assertTrue(bestMove[0] >= 0 && bestMove[0] < game.getSize());
+        assertTrue(bestMove[1] >= 0 && bestMove[1] < game.getSize());
+        assertEquals(TicTacToeGame.EMPTY, game.getCell(bestMove[0], bestMove[1]));
+    }
+
+    @Test
+    void mediumDifficultyBlocksImmediateLargerBoardThreat() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        game.placeMove(3, 0, 'O');
+        game.placeMove(3, 1, 'X');
+        game.placeMove(3, 2, 'X');
+        game.placeMove(3, 3, 'X');
+
+        int[] bestMove = game.findBestMove(TicTacToeGame.Difficulty.MEDIUM);
+
+        assertArrayEquals(new int[] { 3, 4 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void mediumDifficultyChoosesCenterOnEmptyLargerBoard() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        int[] bestMove = game.findBestMove(TicTacToeGame.Difficulty.MEDIUM);
+
+        assertArrayEquals(new int[] { 2, 2 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void hardDifficultyChoosesCenterOnEmptyLargerBoard() {
+        TicTacToeGame game = new TicTacToeGame(5, 4);
+
+        int[] bestMove = game.findBestMove(TicTacToeGame.Difficulty.HARD);
+
+        assertArrayEquals(new int[] { 2, 2 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void hardDifficultyExtendsStrongLargerBoardLine() {
+        TicTacToeGame game = new TicTacToeGame(6, 5);
+
+        game.placeMove(2, 1, 'O');
+        game.placeMove(2, 2, 'O');
+        game.placeMove(2, 3, 'O');
+        game.placeMove(5, 5, 'X');
+
+        int[] bestMove = game.findBestMove(TicTacToeGame.Difficulty.HARD);
+
+        assertTrue(isMove(bestMove, 2, 0) || isMove(bestMove, 2, 4));
+    }
+
+    @Test
+    void recommendationUsesRequestedPlayerPerspective() {
+        TicTacToeGame game = new TicTacToeGame(3, 3);
+
+        game.placeMove(0, 0, 'X');
+        game.placeMove(0, 1, 'X');
+        game.placeMove(1, 1, 'O');
+
+        int[] bestMove = game.recommendMove('X', TicTacToeGame.Difficulty.MEDIUM);
+
+        assertArrayEquals(new int[] { 0, 2 }, moveOnly(bestMove));
+    }
+
+    @Test
+    void playerVsComputerUndoAndRedoOperateAsPairs() {
+        TicTacToeGame game = new TicTacToeGame(3, 3);
+
+        game.placeMove(0, 0, 'X');
+        game.placeMove(1, 1, 'O');
+
+        assertEquals(2, game.undoTurn(true));
+        assertEquals(TicTacToeGame.EMPTY, game.getCell(0, 0));
+        assertEquals(TicTacToeGame.EMPTY, game.getCell(1, 1));
+
+        assertEquals(2, game.redoTurn(true));
+        assertEquals('X', game.getCell(0, 0));
+        assertEquals('O', game.getCell(1, 1));
+    }
+
+    @Test
+    void snapshotRebuildsBoardFromMoveHistory() {
+        TicTacToeGame game = new TicTacToeGame(4, 3);
+        java.util.List<int[]> moves = new java.util.ArrayList<>();
+        moves.add(new int[] { 0, 0, 'X' });
+        moves.add(new int[] { 2, 1, 'O' });
+        moves.add(new int[] { 3, 3, 'X' });
+
+        char[][] snapshot = game.buildSnapshot(moves);
+
+        assertEquals('X', snapshot[0][0]);
+        assertEquals('O', snapshot[2][1]);
+        assertEquals('X', snapshot[3][3]);
+        assertEquals(TicTacToeGame.EMPTY, snapshot[1][1]);
+    }
+
+    @Test
+    void timeoutWinnerIsOpponentOfTimedOutPlayer() {
+        TicTacToeGame game = new TicTacToeGame(3, 3);
+
+        assertEquals('O', game.getTimeoutWinner('X'));
+        assertEquals('X', game.getTimeoutWinner('O'));
+    }
+
+    private static int[] moveOnly(int[] move) {
+        return new int[] { move[0], move[1] };
+    }
+
+    private static boolean isMove(int[] move, int row, int col) {
+        return move[0] == row && move[1] == col;
     }
 
     private static void fillBoard(TicTacToeGame game, char[][] values) {

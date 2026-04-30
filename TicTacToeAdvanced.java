@@ -17,6 +17,8 @@ public class TicTacToeAdvanced {
     private static final Color ACCENT    = new Color(167, 139, 250);
     private static final Color TEXT      = new Color(226, 226, 248);
     private static final Color SUBTEXT   = new Color(148, 148, 180);
+    private static final Color HINT_BG   = new Color(88, 72, 24);
+    private static final Color REPLAY_BG = new Color(30, 48, 78);
     private static final Color BTN_DARK  = new Color(50,  48,  82);
     private static final Color GRID_GAP  = new Color(8,   6,   18);
     private static final Color CARD_BG   = new Color(24,  22,  46);
@@ -45,14 +47,29 @@ public class TicTacToeAdvanced {
     private TicTacToeGame game;
     private int           size, winLength;
     private boolean       vsComputer, gameOver;
+    private TicTacToeGame.Difficulty difficulty = TicTacToeGame.Difficulty.MEDIUM;
+    private int           turnSeconds;
+    private int           remainingSeconds;
+    private boolean       aiThinking, replayMode;
+    private int           replayIndex, gameVersion;
+    private int           hintRow = -1, hintCol = -1;
     private int playerXWins, playerOWins, ties;
+    private final java.util.List<MoveRecord> moveHistory = new ArrayList<>();
+    private final java.util.List<MoveRecord> redoHistory = new ArrayList<>();
 
     // ─── GUI ──────────────────────────────────────────────────────────────────
     private JFrame       frame;
     private CardLayout   cards;
     private JPanel       rootPanel;
     private CellButton[][] cellButtons;
-    private JLabel       statusLabel, scoreLabel;
+    private JLabel       statusLabel, scoreLabel, timerLabel;
+    private JTextArea    historyArea;
+    private JButton      undoBtn, redoBtn, hintBtn;
+    private JButton      replayFirstBtn, replayPrevBtn, replayNextBtn, replayLatestBtn;
+    private javax.swing.Timer turnTimer;
+    private SwingWorker<int[], Void> aiWorker;
+    private String       gameOverStatusText = "";
+    private Color        gameOverStatusColor = WIN_FG;
 
     // ═══════════════════════════════════════════════════════════════════════════
     //  SOUND
@@ -99,6 +116,7 @@ public class TicTacToeAdvanced {
     private class CellButton extends JButton {
         char    symbol  = EMPTY;
         boolean winning = false;
+        boolean hinted  = false;
 
         CellButton(int row, int col, int sz) {
             setOpaque(false);
@@ -121,7 +139,7 @@ public class TicTacToeAdvanced {
             int w = getWidth(), h = getHeight();
 
             boolean hovered = getModel().isRollover() && symbol == EMPTY && !gameOver;
-            Color bg = winning ? CELL_WIN : hovered ? CELL_HVR : CELL_BG;
+            Color bg = winning ? CELL_WIN : hinted ? HINT_BG : replayMode ? REPLAY_BG : hovered ? CELL_HVR : CELL_BG;
             g2.setColor(bg);
             g2.fillRoundRect(1, 1, w-2, h-2, 16, 16);
 
@@ -139,6 +157,28 @@ public class TicTacToeAdvanced {
                 }
             }
             g2.dispose();
+        }
+    }
+
+    private static class MoveRecord {
+        final int number;
+        final int row;
+        final int col;
+        final char player;
+
+        MoveRecord(int number, int row, int col, char player) {
+            this.number = number;
+            this.row = row;
+            this.col = col;
+            this.player = player;
+        }
+
+        int[] toArray() {
+            return new int[] { row, col, player };
+        }
+
+        String label() {
+            return number + ". " + player + "  r" + (row + 1) + " c" + (col + 1);
         }
     }
 
@@ -176,7 +216,7 @@ public class TicTacToeAdvanced {
             }
         };
         panel.setBorder(BorderFactory.createEmptyBorder(28, 40, 24, 40));
-        panel.setPreferredSize(new Dimension(500, 700));
+        panel.setPreferredSize(new Dimension(500, 760));
 
         // ────────────────────────────────────────────────────────────────
         //  TITLE BLOCK
@@ -355,12 +395,34 @@ public class TicTacToeAdvanced {
         JButton pvpBtn = toggleSegment("Player vs Player",    activeCol);
         JButton pvcBtn = toggleSegment("Player vs Computer",  inactiveCol);
 
+        final TicTacToeGame.Difficulty[] difficultyVal = {TicTacToeGame.Difficulty.MEDIUM};
+        JButton easyBtn = toggleSegment("Easy", inactiveCol);
+        JButton mediumBtn = toggleSegment("Medium", activeCol);
+        JButton hardBtn = toggleSegment("Hard", inactiveCol);
+        JButton[] difficultyBtns = { easyBtn, mediumBtn, hardBtn };
+        TicTacToeGame.Difficulty[] difficultyValues = {
+                TicTacToeGame.Difficulty.EASY,
+                TicTacToeGame.Difficulty.MEDIUM,
+                TicTacToeGame.Difficulty.HARD
+        };
+
+        Runnable refreshDifficultyBtns = () -> {
+            boolean enabled = !isPvP[0];
+            for (int i = 0; i < difficultyBtns.length; i++) {
+                boolean selected = difficultyVal[0] == difficultyValues[i];
+                difficultyBtns[i].setEnabled(enabled);
+                difficultyBtns[i].setBackground(enabled && selected ? activeCol : inactiveCol);
+                difficultyBtns[i].repaint();
+            }
+        };
+
         pvpBtn.addActionListener(e -> {
             isPvP[0] = true;
             pvpBtn.setBackground(activeCol);
             pvcBtn.setBackground(inactiveCol);
             pvpBtn.repaint();
             pvcBtn.repaint();
+            refreshDifficultyBtns.run();
         });
         pvcBtn.addActionListener(e -> {
             isPvP[0] = false;
@@ -368,7 +430,17 @@ public class TicTacToeAdvanced {
             pvpBtn.setBackground(inactiveCol);
             pvpBtn.repaint();
             pvcBtn.repaint();
+            refreshDifficultyBtns.run();
         });
+
+        for (int i = 0; i < difficultyBtns.length; i++) {
+            final int index = i;
+            difficultyBtns[i].addActionListener(e -> {
+                difficultyVal[0] = difficultyValues[index];
+                refreshDifficultyBtns.run();
+            });
+        }
+        refreshDifficultyBtns.run();
 
         JPanel modeRow = new JPanel(new GridLayout(1, 2, 4, 0));
         modeRow.setOpaque(false);
@@ -377,6 +449,52 @@ public class TicTacToeAdvanced {
         modeRow.add(pvpBtn);
         modeRow.add(pvcBtn);
         setupContent.add(modeRow);
+        setupContent.add(Box.createVerticalStrut(12));
+        setupContent.add(cardSectionLabel("AI DIFFICULTY"));
+        setupContent.add(Box.createVerticalStrut(6));
+
+        JPanel difficultyRow = new JPanel(new GridLayout(1, 3, 4, 0));
+        difficultyRow.setOpaque(false);
+        difficultyRow.setMaximumSize(new Dimension(420, 36));
+        difficultyRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        difficultyRow.add(easyBtn);
+        difficultyRow.add(mediumBtn);
+        difficultyRow.add(hardBtn);
+        setupContent.add(difficultyRow);
+        setupContent.add(Box.createVerticalStrut(12));
+        setupContent.add(cardSectionLabel("TURN TIMER"));
+        setupContent.add(Box.createVerticalStrut(6));
+
+        final int[] timerVal = {0};
+        JButton timerOffBtn = toggleSegment("Off", activeCol);
+        JButton timer15Btn = toggleSegment("15s", inactiveCol);
+        JButton timer30Btn = toggleSegment("30s", inactiveCol);
+        JButton timer60Btn = toggleSegment("60s", inactiveCol);
+        JButton[] timerBtns = { timerOffBtn, timer15Btn, timer30Btn, timer60Btn };
+        int[] timerValues = { 0, 15, 30, 60 };
+        Runnable refreshTimerBtns = () -> {
+            for (int i = 0; i < timerBtns.length; i++) {
+                timerBtns[i].setBackground(timerVal[0] == timerValues[i] ? activeCol : inactiveCol);
+                timerBtns[i].repaint();
+            }
+        };
+        for (int i = 0; i < timerBtns.length; i++) {
+            final int index = i;
+            timerBtns[i].addActionListener(e -> {
+                timerVal[0] = timerValues[index];
+                refreshTimerBtns.run();
+            });
+        }
+
+        JPanel timerRow = new JPanel(new GridLayout(1, 4, 4, 0));
+        timerRow.setOpaque(false);
+        timerRow.setMaximumSize(new Dimension(420, 36));
+        timerRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        timerRow.add(timerOffBtn);
+        timerRow.add(timer15Btn);
+        timerRow.add(timer30Btn);
+        timerRow.add(timer60Btn);
+        setupContent.add(timerRow);
 
         center.add(wrapInCard(setupContent));
         panel.add(center, BorderLayout.CENTER);
@@ -391,6 +509,8 @@ public class TicTacToeAdvanced {
             size       = sizeVal[0];
             winLength  = winVal[0];
             vsComputer = !isPvP[0];
+            difficulty = difficultyVal[0];
+            turnSeconds = timerVal[0];
             startNewGame();
         });
 
@@ -570,14 +690,30 @@ public class TicTacToeAdvanced {
     //  GAME SCREEN
     // ═══════════════════════════════════════════════════════════════════════════
     private void startNewGame() {
+        cancelComputerMove();
+        stopTurnTimer();
         game = new TicTacToeGame(size, winLength);
         gameOver      = false;
+        aiThinking    = false;
+        replayMode    = false;
+        replayIndex   = 0;
+        hintRow       = -1;
+        hintCol       = -1;
+        gameOverStatusText = "";
+        gameOverStatusColor = WIN_FG;
+        remainingSeconds = turnSeconds;
+        moveHistory.clear();
+        redoHistory.clear();
+        gameVersion++;
 
         JPanel gamePanel = buildGamePanel();
         rootPanel.add(gamePanel, "GAME");
         cards.show(rootPanel, "GAME");
         frame.pack();
         frame.setLocationRelativeTo(null);
+        refreshHistory();
+        refreshControls();
+        resetTurnTimer();
     }
 
     private JPanel buildGamePanel() {
@@ -601,7 +737,7 @@ public class TicTacToeAdvanced {
         titleLbl.setForeground(ACCENT);
         titleLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-        String modeStr = vsComputer ? "vs Computer" : "2 Players";
+        String modeStr = vsComputer ? "vs Computer  \u00b7  " + difficultyLabel() : "2 Players";
         JLabel subtitleLbl = new JLabel(size + " \u00d7 " + size + "  \u00b7  Win " + winLength + "  \u00b7  " + modeStr,
             SwingConstants.CENTER);
         subtitleLbl.setFont(FONT_SMALL);
@@ -642,25 +778,47 @@ public class TicTacToeAdvanced {
 
         statusLabel = new JLabel("", SwingConstants.CENTER);
         statusLabel.setFont(new Font(FONT_FAMILY, Font.BOLD, 17));
-        statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        statusLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 2, 0));
         refreshStatus();
-        south.add(statusLabel, BorderLayout.NORTH);
+        timerLabel = new JLabel("", SwingConstants.CENTER);
+        timerLabel.setFont(FONT_SMALL);
+        timerLabel.setForeground(SUBTEXT);
+        refreshTimerLabel();
+
+        JPanel statusBlock = new JPanel();
+        statusBlock.setLayout(new BoxLayout(statusBlock, BoxLayout.Y_AXIS));
+        statusBlock.setOpaque(false);
+        statusLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        timerLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        statusBlock.add(statusLabel);
+        statusBlock.add(timerLabel);
+        statusBlock.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        south.add(statusBlock, BorderLayout.NORTH);
 
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
         controls.setOpaque(false);
 
-        JButton undoBtn    = roundButton("Undo",     BTN_DARK);
-        JButton redoBtn    = roundButton("Redo",     BTN_DARK);
+        undoBtn            = roundButton("Undo",     BTN_DARK);
+        redoBtn            = roundButton("Redo",     BTN_DARK);
+        hintBtn            = roundButton("Hint",     new Color(96, 78, 28));
         JButton newGameBtn = roundButton("New Game", new Color(48, 82, 148));
         JButton menuBtn    = roundButton("Menu",     new Color(70, 48, 120));
 
         undoBtn.addActionListener(e -> { if (game.canUndo()) { undoMove(); refreshBoard(); } });
         redoBtn.addActionListener(e -> { if (game.canRedo()) { redoMove(); refreshBoard(); } });
+        hintBtn.addActionListener(e -> showHint());
         newGameBtn.addActionListener(e -> startNewGame());
-        menuBtn.addActionListener(e -> cards.show(rootPanel, "MENU"));
+        menuBtn.addActionListener(e -> {
+            gameVersion++;
+            cancelComputerMove();
+            stopTurnTimer();
+            clearHint();
+            cards.show(rootPanel, "MENU");
+        });
 
         controls.add(undoBtn);
         controls.add(redoBtn);
+        controls.add(hintBtn);
         controls.add(newGameBtn);
         controls.add(menuBtn);
         south.add(controls, BorderLayout.CENTER);
@@ -673,46 +831,148 @@ public class TicTacToeAdvanced {
         south.add(scoreLabel, BorderLayout.SOUTH);
 
         panel.add(south, BorderLayout.SOUTH);
+        panel.add(buildHistoryPanel(), BorderLayout.EAST);
+        return panel;
+    }
+
+    private JPanel buildHistoryPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setOpaque(false);
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 14, 0, 0));
+        panel.setPreferredSize(new Dimension(170, 0));
+
+        JLabel title = cardSectionLabel("MOVE HISTORY");
+        title.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+        panel.add(title, BorderLayout.NORTH);
+
+        historyArea = new JTextArea(10, 14);
+        historyArea.setEditable(false);
+        historyArea.setFocusable(false);
+        historyArea.setFont(FONT_SMALL);
+        historyArea.setForeground(TEXT);
+        historyArea.setBackground(CARD_BG);
+        historyArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        JScrollPane scrollPane = new JScrollPane(historyArea);
+        scrollPane.setBorder(BorderFactory.createLineBorder(CARD_BORDER, 1));
+        scrollPane.getViewport().setBackground(CARD_BG);
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        JPanel replayPanel = new JPanel(new GridLayout(2, 2, 5, 5));
+        replayPanel.setOpaque(false);
+        replayFirstBtn = roundButton("|<", BTN_DARK);
+        replayPrevBtn = roundButton("<", BTN_DARK);
+        replayNextBtn = roundButton(">", BTN_DARK);
+        replayLatestBtn = roundButton(">|", BTN_DARK);
+        replayFirstBtn.addActionListener(e -> showReplayFrame(0));
+        replayPrevBtn.addActionListener(e -> showReplayFrame(replayIndex - 1));
+        replayNextBtn.addActionListener(e -> showReplayFrame(replayIndex + 1));
+        replayLatestBtn.addActionListener(e -> showReplayFrame(moveHistory.size()));
+        replayPanel.add(replayFirstBtn);
+        replayPanel.add(replayPrevBtn);
+        replayPanel.add(replayNextBtn);
+        replayPanel.add(replayLatestBtn);
+        panel.add(replayPanel, BorderLayout.SOUTH);
+
         return panel;
     }
 
     // ─── Click handler ────────────────────────────────────────────────────────
     private void handleCellClick(int r, int c) {
-        if (gameOver || game.getCell(r, c) != EMPTY) return;
+        if (gameOver || aiThinking || replayMode || game.getCell(r, c) != EMPTY) return;
         if (vsComputer && game.getCurrentPlayer() == 'O') return;
 
-        placeAndRecord(r, c, game.getCurrentPlayer());
+        if (!placeAndRecord(r, c, game.getCurrentPlayer())) return;
         refreshBoard();
         if (checkEnd(r, c)) return;
 
         game.switchPlayer();
         refreshStatus();
+        resetTurnTimer();
 
         if (vsComputer && game.getCurrentPlayer() == 'O') {
-            javax.swing.Timer t = new javax.swing.Timer(300, e -> doComputerMove());
-            t.setRepeats(false);
-            t.start();
+            beginComputerMove();
         }
     }
 
-    private void doComputerMove() {
-        int[] best = game.findBestMove(Math.min(5, size * size));
-        if (best[0] < 0) return;
-        placeAndRecord(best[0], best[1], 'O');
-        refreshBoard();
-        if (!checkEnd(best[0], best[1])) {
-            game.switchPlayer();
-            refreshStatus();
+    private void beginComputerMove() {
+        pauseTurnTimer();
+        clearHint();
+        aiThinking = true;
+        refreshStatus();
+        refreshControls();
+        int workerVersion = gameVersion;
+        TicTacToeGame thinkingGame = game;
+        TicTacToeGame.Difficulty thinkingDifficulty = difficulty;
+        aiWorker = new SwingWorker<int[], Void>() {
+            @Override
+            protected int[] doInBackground() {
+                return thinkingGame.findBestMove(thinkingDifficulty);
+            }
+
+            @Override
+            protected void done() {
+                if (isCancelled() || workerVersion != gameVersion) {
+                    return;
+                }
+                try {
+                    int[] best = get();
+                    aiThinking = false;
+                    if (gameOver || replayMode || best[0] < 0) {
+                        refreshStatus();
+                        refreshControls();
+                        resumeTurnTimer();
+                        return;
+                    }
+                    if (placeAndRecord(best[0], best[1], 'O')) {
+                        refreshBoard();
+                        if (!checkEnd(best[0], best[1])) {
+                            game.switchPlayer();
+                            refreshStatus();
+                            resetTurnTimer();
+                        }
+                    }
+                } catch (Exception ignored) {
+                    aiThinking = false;
+                    refreshStatus();
+                } finally {
+                    refreshControls();
+                    refreshTimerLabel();
+                }
+            }
+        };
+        aiWorker.execute();
+    }
+
+    private String difficultyLabel() {
+        switch (difficulty) {
+            case EASY:
+                return "Easy";
+            case HARD:
+                return "Hard";
+            case MEDIUM:
+            default:
+                return "Medium";
         }
     }
 
-    private void placeAndRecord(int r, int c, char player) {
-        game.placeMove(r, c, player);
+    private boolean placeAndRecord(int r, int c, char player) {
+        if (!game.placeMove(r, c, player)) {
+            return false;
+        }
+        clearHint();
+        moveHistory.add(new MoveRecord(moveHistory.size() + 1, r, c, player));
+        redoHistory.clear();
+        replayIndex = moveHistory.size();
+        replayMode = false;
+        refreshHistory();
+        refreshControls();
         if (player == 'X') soundX(); else soundO();
+        return true;
     }
 
     private boolean checkEnd(int r, int c) {
         if (game.hasWon(game.getCurrentPlayer(), r, c)) {
+            stopTurnTimer();
             gameOver = true;
             game.setGameOver(true);
             if (game.getCurrentPlayer() == 'X') playerXWins++; else playerOWins++;
@@ -720,18 +980,25 @@ public class TicTacToeAdvanced {
             highlightWinningCells();
             soundWin();
             String who = (vsComputer && game.getCurrentPlayer() == 'O') ? "Computer (O)" : "Player " + game.getCurrentPlayer();
-            statusLabel.setText(who + " wins!");
-            statusLabel.setForeground(WIN_FG);
+            gameOverStatusText = who + " wins!";
+            gameOverStatusColor = WIN_FG;
+            statusLabel.setText(gameOverStatusText);
+            statusLabel.setForeground(gameOverStatusColor);
+            refreshControls();
             return true;
         }
         if (game.isBoardFull()) {
+            stopTurnTimer();
             gameOver = true;
             game.setGameOver(true);
             ties++;
             refreshScore();
             soundTie();
-            statusLabel.setText("It's a tie!");
-            statusLabel.setForeground(TIE_COL);
+            gameOverStatusText = "It's a tie!";
+            gameOverStatusColor = TIE_COL;
+            statusLabel.setText(gameOverStatusText);
+            statusLabel.setForeground(gameOverStatusColor);
+            refreshControls();
             return true;
         }
         return false;
@@ -739,15 +1006,40 @@ public class TicTacToeAdvanced {
 
     // ─── Undo / Redo ─────────────────────────────────────────────────────────
     private void undoMove() {
-        game.undoMove();
+        if (aiThinking || replayMode) return;
+        int count = game.undoTurn(vsComputer);
+        if (count == 0) return;
+        java.util.List<MoveRecord> undone = new ArrayList<>();
+        for (int i = 0; i < count && !moveHistory.isEmpty(); i++) {
+            undone.add(0, moveHistory.remove(moveHistory.size() - 1));
+        }
+        redoHistory.addAll(0, undone);
         gameOver = false;
+        replayIndex = moveHistory.size();
+        replayMode = false;
+        clearHint();
+        refreshHistory();
         refreshStatus();
+        refreshControls();
+        resetTurnTimer();
     }
 
     private void redoMove() {
-        game.redoMove();
+        if (aiThinking || replayMode) return;
+        int count = game.redoTurn(vsComputer);
+        if (count == 0) return;
+        for (int i = 0; i < count && !redoHistory.isEmpty(); i++) {
+            MoveRecord move = redoHistory.remove(0);
+            moveHistory.add(new MoveRecord(moveHistory.size() + 1, move.row, move.col, move.player));
+        }
         gameOver = false;
+        replayIndex = moveHistory.size();
+        replayMode = false;
+        clearHint();
+        refreshHistory();
         refreshStatus();
+        refreshControls();
+        resetTurnTimer();
     }
 
     private void highlightWinningCells() {
@@ -757,18 +1049,32 @@ public class TicTacToeAdvanced {
         }
     }
 
+    private void restoreWinningHighlight() {
+        if (gameOver && game.hasWon(game.getCurrentPlayer())) {
+            highlightWinningCells();
+        }
+    }
+
     // ─── UI refresh ──────────────────────────────────────────────────────────
     private void refreshBoard() {
+        char[][] replayBoard = replayMode ? game.buildSnapshot(toMoveArrays(replayIndex)) : null;
         for (int r = 0; r < size; r++) for (int c = 0; c < size; c++) {
-            cellButtons[r][c].symbol  = game.getCell(r, c);
+            cellButtons[r][c].symbol  = replayMode ? replayBoard[r][c] : game.getCell(r, c);
             cellButtons[r][c].winning = false;
+            cellButtons[r][c].hinted  = !replayMode && hintRow == r && hintCol == c;
             cellButtons[r][c].repaint();
         }
     }
 
     private void refreshStatus() {
-        if (gameOver) return;
-        if (vsComputer && game.getCurrentPlayer() == 'O') {
+        if (replayMode) {
+            statusLabel.setText("Replay " + replayIndex + " / " + moveHistory.size());
+            statusLabel.setForeground(SUBTEXT);
+        } else if (gameOver) {
+            statusLabel.setText(gameOverStatusText.isEmpty() ? "Game over" : gameOverStatusText);
+            statusLabel.setForeground(gameOverStatusColor);
+            return;
+        } else if (aiThinking || (vsComputer && game.getCurrentPlayer() == 'O')) {
             statusLabel.setText("Computer is thinking\u2026");
             statusLabel.setForeground(O_COLOR);
         } else {
@@ -784,6 +1090,186 @@ public class TicTacToeAdvanced {
             "     O  " + playerOWins + "  win" + (playerOWins == 1 ? "" : "s") +
             "     Ties  " + ties
         );
+    }
+
+    private void showHint() {
+        if (!canShowHint()) return;
+        TicTacToeGame.Difficulty hintDifficulty = vsComputer ? difficulty : TicTacToeGame.Difficulty.HARD;
+        int[] move = game.recommendMove(game.getCurrentPlayer(), hintDifficulty);
+        if (move[0] < 0) return;
+        hintRow = move[0];
+        hintCol = move[1];
+        statusLabel.setText("Hint: row " + (hintRow + 1) + ", column " + (hintCol + 1));
+        statusLabel.setForeground(TIE_COL);
+        refreshBoard();
+    }
+
+    private boolean canShowHint() {
+        return hintBtn != null
+                && !gameOver
+                && !aiThinking
+                && !replayMode
+                && isHumanTurn()
+                && !game.getAvailableMoves().isEmpty();
+    }
+
+    private boolean isHumanTurn() {
+        return !vsComputer || game.getCurrentPlayer() == 'X';
+    }
+
+    private void clearHint() {
+        hintRow = -1;
+        hintCol = -1;
+    }
+
+    private void showReplayFrame(int index) {
+        if (aiThinking || moveHistory.isEmpty()) return;
+        clearHint();
+        replayIndex = Math.max(0, Math.min(index, moveHistory.size()));
+        replayMode = replayIndex < moveHistory.size();
+        if (replayMode) {
+            pauseTurnTimer();
+        } else {
+            resumeTurnTimer();
+        }
+        refreshBoard();
+        if (!replayMode) {
+            restoreWinningHighlight();
+        }
+        refreshHistory();
+        refreshStatus();
+        refreshControls();
+        refreshTimerLabel();
+    }
+
+    private java.util.List<int[]> toMoveArrays(int count) {
+        java.util.List<int[]> moves = new ArrayList<>();
+        int limit = Math.max(0, Math.min(count, moveHistory.size()));
+        for (int i = 0; i < limit; i++) {
+            moves.add(moveHistory.get(i).toArray());
+        }
+        return moves;
+    }
+
+    private void refreshHistory() {
+        if (historyArea == null) return;
+        StringBuilder text = new StringBuilder();
+        if (moveHistory.isEmpty()) {
+            text.append("No moves yet.");
+        } else {
+            for (int i = 0; i < moveHistory.size(); i++) {
+                if (replayMode && i == replayIndex) {
+                    text.append("-- replay point --\n");
+                }
+                text.append(moveHistory.get(i).label()).append('\n');
+            }
+            if (replayMode && replayIndex == moveHistory.size()) {
+                text.append("-- latest --\n");
+            }
+        }
+        historyArea.setText(text.toString());
+        historyArea.setCaretPosition(0);
+    }
+
+    private void refreshControls() {
+        if (undoBtn != null) {
+            undoBtn.setEnabled(!aiThinking && !replayMode && game != null && game.canUndo());
+        }
+        if (redoBtn != null) {
+            redoBtn.setEnabled(!aiThinking && !replayMode && game != null && game.canRedo());
+        }
+        if (hintBtn != null) {
+            hintBtn.setEnabled(canShowHint());
+        }
+        boolean replayReady = !aiThinking && !moveHistory.isEmpty();
+        if (replayFirstBtn != null) {
+            replayFirstBtn.setEnabled(replayReady && replayIndex > 0);
+            replayPrevBtn.setEnabled(replayReady && replayIndex > 0);
+            replayNextBtn.setEnabled(replayReady && replayIndex < moveHistory.size());
+            replayLatestBtn.setEnabled(replayReady && replayIndex < moveHistory.size());
+        }
+    }
+
+    private void resetTurnTimer() {
+        stopTurnTimer();
+        remainingSeconds = turnSeconds;
+        resumeTurnTimer();
+    }
+
+    private void resumeTurnTimer() {
+        stopTurnTimer();
+        refreshTimerLabel();
+        if (turnSeconds <= 0 || remainingSeconds <= 0 || gameOver || replayMode || aiThinking
+                || (vsComputer && game.getCurrentPlayer() == 'O')) {
+            return;
+        }
+        turnTimer = new javax.swing.Timer(1000, e -> {
+            remainingSeconds--;
+            refreshTimerLabel();
+            if (remainingSeconds <= 0) {
+                handleTurnTimeout();
+            }
+        });
+        turnTimer.start();
+    }
+
+    private void pauseTurnTimer() {
+        if (turnTimer != null) {
+            turnTimer.stop();
+            turnTimer = null;
+        }
+        refreshTimerLabel();
+    }
+
+    private void stopTurnTimer() {
+        if (turnTimer != null) {
+            turnTimer.stop();
+            turnTimer = null;
+        }
+    }
+
+    private void refreshTimerLabel() {
+        if (timerLabel == null) return;
+        if (turnSeconds <= 0) {
+            timerLabel.setText("Timer Off");
+        } else if (gameOver) {
+            timerLabel.setText("Timer stopped");
+        } else if (replayMode) {
+            timerLabel.setText("Timer paused for replay");
+        } else if (aiThinking || (vsComputer && game != null && game.getCurrentPlayer() == 'O')) {
+            timerLabel.setText("Timer paused for computer");
+        } else {
+            timerLabel.setText("Timer: " + remainingSeconds + "s");
+        }
+    }
+
+    private void handleTurnTimeout() {
+        stopTurnTimer();
+        if (gameOver || replayMode || aiThinking) return;
+        char timedOut = game.getCurrentPlayer();
+        char winner = game.getTimeoutWinner(timedOut);
+        gameOver = true;
+        game.setGameOver(true);
+        if (winner == 'X') playerXWins++; else playerOWins++;
+        refreshScore();
+        clearHint();
+        refreshBoard();
+        refreshControls();
+        soundWin();
+        String loser = vsComputer && timedOut == 'O' ? "Computer (O)" : "Player " + timedOut;
+        String winnerName = vsComputer && winner == 'O' ? "Computer (O)" : "Player " + winner;
+        gameOverStatusText = loser + " ran out of time. " + winnerName + " wins!";
+        gameOverStatusColor = WIN_FG;
+        statusLabel.setText(gameOverStatusText);
+        statusLabel.setForeground(gameOverStatusColor);
+        refreshTimerLabel();
+    }
+
+    private void cancelComputerMove() {
+        if (aiWorker != null && !aiWorker.isDone()) {
+            aiWorker.cancel(true);
+        }
+        aiThinking = false;
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
